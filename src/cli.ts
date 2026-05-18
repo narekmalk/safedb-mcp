@@ -39,9 +39,8 @@ program
 program
   .command("validate-config")
   .description("Validate a SafeDB YAML or JSON config file.")
-  .requiredOption("-c, --config <path>", "Path to SafeDB config file")
-  .action(async (options: { config: string }) => {
-    const config = await loadConfig(options.config);
+  .action(async (_options: unknown, command: Command) => {
+    const config = await loadConfig(configPath(command));
     validateConfig(config);
     console.error("Config is valid.");
   });
@@ -49,9 +48,8 @@ program
 program
   .command("test-connection")
   .description("Validate config and test the Postgres connection.")
-  .requiredOption("-c, --config <path>", "Path to SafeDB config file")
-  .action(async (options: { config: string }) => {
-    const config = await loadConfig(options.config);
+  .action(async (_options: unknown, command: Command) => {
+    const config = await loadConfig(configPath(command));
     const db = new PostgresDatabase(config);
 
     try {
@@ -75,4 +73,9 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function configPath(command: Command): string {
+  const options = command.optsWithGlobals() as { config?: string };
+  return options.config ?? "safedb.yaml";
 }
