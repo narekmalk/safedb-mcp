@@ -3,4 +3,5 @@ dist/
 coverage/
 *.log
 .env
+safedb.yaml
 safedb-audit.jsonl
