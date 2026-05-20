@@ -1,5 +1,6 @@
 {
   "name": "@safedb/safedb-mcp",
+  "mcpName": "io.github.my-username/safedb-mcp",
   "version": "0.2.0",
   "description": "A secure MCP server that lets AI agents query Postgres safely.",
   "type": "module",
