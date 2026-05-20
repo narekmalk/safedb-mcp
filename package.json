@@ -1,8 +1,16 @@
 {
-  "name": "safedb-mcp",
-  "version": "0.1.0",
+  "name": "@safedb/safedb-mcp",
+  "version": "0.2.0",
   "description": "A secure MCP server that lets AI agents query Postgres safely.",
   "type": "module",
+  "homepage": "https://github.com/narekmalk/safedb-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narekmalk/safedb-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/narekmalk/safedb-mcp/issues"
+  },
   "bin": {
     "safedb-mcp": "./dist/cli.js"
   },
