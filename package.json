@@ -1,7 +1,7 @@
 {
   "name": "@safedb/safedb-mcp",
   "mcpName": "io.github.narekmalk/safedb-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A secure MCP server that lets AI agents query databases safely.",
   "type": "module",
   "homepage": "https://github.com/narekmalk/safedb-mcp#readme",
