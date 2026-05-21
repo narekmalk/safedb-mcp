@@ -5,3 +5,4 @@ coverage/
 .env
 safedb.yaml
 safedb-audit.jsonl
+mcp-publisher.exe
