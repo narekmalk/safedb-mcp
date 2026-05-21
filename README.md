@@ -21,12 +21,10 @@ This project is an MVP. It prefers false positives and blocked queries over unsa
 ## Quickstart
 
 ```bash
-npm install
-npm run build
-npx safedb-mcp init --output safedb.yaml
-DATABASE_URL=postgres://readonly:password@localhost:5432/app npx safedb-mcp validate-config --config safedb.yaml
-DATABASE_URL=postgres://readonly:password@localhost:5432/app npx safedb-mcp test-connection --config safedb.yaml
-DATABASE_URL=postgres://readonly:password@localhost:5432/app npx safedb-mcp --config safedb.yaml
+npx @safedb/safedb-mcp init --output safedb.yaml
+DATABASE_URL=postgres://readonly:password@localhost:5432/app npx @safedb/safedb-mcp validate-config --config safedb.yaml
+DATABASE_URL=postgres://readonly:password@localhost:5432/app npx @safedb/safedb-mcp test-connection --config safedb.yaml
+DATABASE_URL=postgres://readonly:password@localhost:5432/app npx @safedb/safedb-mcp --config safedb.yaml
 ```
 
 Use a dedicated Postgres role with database-level read-only permissions. SafeDB MCP is a defense-in-depth layer, not a replacement for least-privilege database credentials.
