@@ -1,5 +1,7 @@
 # SafeDB MCP
 
+[![npm version](https://img.shields.io/npm/v/%40safedb%2Fsafedb-mcp)](https://www.npmjs.com/package/@safedb/safedb-mcp)
+
 SafeDB MCP is a secure Model Context Protocol server that lets AI agents inspect and query Postgres with strict read-only guardrails. It is designed for teams that want useful database access without handing an agent unrestricted production credentials.
 
 Direct database credentials are dangerous for agents because a single bad prompt, tool call, or generated SQL statement can mutate data, exfiltrate sensitive columns, or run expensive queries. SafeDB MCP puts a policy layer between the agent and Postgres: only configured schemas and tables are visible, SQL is conservatively validated, row counts are capped, results are masked, and every query attempt is audited.
