@@ -4,7 +4,7 @@
 
 SafeDB MCP is a secure Model Context Protocol server that lets AI agents inspect and query Postgres with strict read-only guardrails. It is designed for teams that want useful database access without handing an agent unrestricted production credentials.
 
-Direct database credentials are dangerous for agents because a single bad prompt, tool call, or generated SQL statement can mutate data, exfiltrate sensitive columns, or run expensive queries. SafeDB MCP puts a policy layer between the agent and Postgres: only configured schemas and tables are visible, SQL is conservatively validated, row counts are capped, results are masked, and every query attempt is audited.
+Direct database credentials are dangerous for agents because a single bad prompt, tool call, or generated SQL statement can mutate data, exfiltrate sensitive columns, or run expensive queries. SafeDB MCP puts a policy layer between the agent and Postgres: only configured schemas and tables are visible, SQL is parsed and validated before execution, row counts are capped, results are masked, and every query attempt is audited.
 
 This project is an MVP. It prefers false positives and blocked queries over unsafe access, and it does not claim perfect SQL security.
 
@@ -13,7 +13,8 @@ This project is an MVP. It prefers false positives and blocked queries over unsa
 - MCP tools: `list_schemas`, `list_tables`, `describe_table`, `run_readonly_query`, `explain_query`, `get_safedb_policy`
 - Postgres support through `pg`
 - YAML or JSON config with environment expansion
-- Read-only SQL guardrails for `SELECT`, `WITH ... SELECT`, and `EXPLAIN SELECT`
+- AST-backed read-only SQL guardrails for `SELECT`, `WITH ... SELECT`, `UNION`, and `EXPLAIN SELECT`
+- Table detection through joins, CTEs, nested subqueries, aliases, and unions
 - Configurable table allowlists, denylists, row limits, and statement timeout
 - PII masking: `redact`, `email`, `partial`, and deterministic `hash`
 - JSONL audit log with no raw result data
@@ -129,7 +130,8 @@ Cursor or Hermes-style MCP config:
 SafeDB MCP aims to guarantee that:
 
 - Only configured schemas and tables are inspectable or queryable through the MCP tools.
-- Mutating SQL keywords and multiple statements are blocked before execution.
+- SQL is parsed before execution, and mutating statement types or multiple statements are blocked.
+- Table access policy is checked against real tables found through joins, CTEs, nested subqueries, aliases, and unions.
 - Query execution happens inside a read-only transaction with a local `statement_timeout`.
 - Returned rows are capped by an outer `LIMIT`.
 - Configured PII fields are masked before tool responses are returned.
@@ -138,7 +140,7 @@ SafeDB MCP aims to guarantee that:
 
 ## Non-Goals
 
-- Perfect SQL parsing or formal proof of query safety.
+- Formal proof of query safety.
 - Support for every valid Postgres read-only construct.
 - Write operations, migrations, stored procedure execution, or `COPY`.
 - Cross-database support in the first version.
@@ -154,13 +156,12 @@ npm run lint
 
 ## Roadmap
 
-- Integrate a mature Postgres AST parser for more accurate table and CTE analysis.
 - Column-level projection enforcement so masked fields cannot be bypassed with aliases.
 - Per-tool and per-table rate limits.
 - Optional OpenTelemetry traces.
 - MySQL and SQLite adapters.
 - Signed audit logs.
-- Docker image and Helm chart.
+- Published Docker image and Helm chart.
 
 ## License
 
