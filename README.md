@@ -31,6 +31,34 @@ DATABASE_URL=postgres://readonly:password@localhost:5432/app npx @safedb/safedb-
 
 Use a dedicated Postgres role with database-level read-only permissions. SafeDB MCP is a defense-in-depth layer, not a replacement for least-privilege database credentials.
 
+## Docker
+
+A Docker image packages SafeDB MCP with Node.js and its production dependencies so it can run the same way on any host with Docker.
+
+Build the image locally:
+
+```bash
+docker build -t safedb-mcp .
+```
+
+Run the MCP server with a mounted config file:
+
+```bash
+docker run --rm -i \
+  -e DATABASE_URL=postgres://readonly:password@host.docker.internal:5432/app \
+  -v "$PWD/safedb.yaml:/config/safedb.yaml:ro" \
+  safedb-mcp
+```
+
+Pass CLI commands after the image name:
+
+```bash
+docker run --rm \
+  -e DATABASE_URL=postgres://readonly:password@host.docker.internal:5432/app \
+  -v "$PWD/safedb.yaml:/config/safedb.yaml:ro" \
+  safedb-mcp --config /config/safedb.yaml validate-config
+```
+
 ## Example Config
 
 ```yaml
