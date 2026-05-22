@@ -1,34 +1,7 @@
+import { parse } from "pgsql-ast-parser";
+import type { Statement } from "pgsql-ast-parser";
 import type { DetectedTable, GuardResult, SafeDbConfig } from "../types.js";
 import { AccessPolicy } from "./policy.js";
-
-const COMMENT_PATTERN = /--|\/\*|\*\//;
-const DANGEROUS_KEYWORDS = [
-  "insert",
-  "update",
-  "delete",
-  "drop",
-  "alter",
-  "truncate",
-  "create",
-  "grant",
-  "revoke",
-  "copy",
-  "call",
-  "do",
-  "merge",
-  "vacuum",
-  "analyze",
-  "refresh",
-  "reindex",
-  "execute",
-  "set",
-  "reset"
-];
-
-const TABLE_PATTERNS = [
-  /\bfrom\s+((?:"[^"]+"|[a-zA-Z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|[a-zA-Z_][\w$]*))?)/gi,
-  /\bjoin\s+((?:"[^"]+"|[a-zA-Z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|[a-zA-Z_][\w$]*))?)/gi
-];
 
 export interface GuardOptions {
   allowExplain?: boolean;
@@ -53,51 +26,25 @@ export function validateReadonlyQuery(
     return { ...baseResult, reason: "Query is empty." };
   }
 
-  if (COMMENT_PATTERN.test(normalizedQuery)) {
-    return {
-      ...baseResult,
-      reason: "SQL comments are blocked because they can make validation ambiguous."
-    };
-  }
-
-  if (hasMultipleStatements(normalizedQuery)) {
-    return { ...baseResult, reason: "Multiple SQL statements are not allowed." };
-  }
-
   const strippedQuery = stripTrailingSemicolon(normalizedQuery);
   const lowerQuery = strippedQuery.toLowerCase();
-  // This lexical denylist is intentionally broad. Until SafeDB has full Postgres AST
-  // validation, false positives are safer than allowing a mutating statement through.
-  const dangerousKeyword = DANGEROUS_KEYWORDS.find((keyword) =>
-    new RegExp(`\\b${keyword}\\b`, "i").test(strippedQuery)
-  );
-
-  if (dangerousKeyword) {
-    return {
-      ...baseResult,
-      reason: `Keyword "${dangerousKeyword.toUpperCase()}" is not allowed in read-only queries.`
-    };
-  }
-
   const isExplain = lowerQuery.startsWith("explain ");
   const explainAllowed = options.allowExplain ?? config.safety.allow_explain;
   if (isExplain && !explainAllowed) {
     return { ...baseResult, isExplain, reason: "EXPLAIN is disabled by policy." };
   }
 
-  if (!startsWithAllowedRead(lowerQuery, isExplain)) {
+  const queryForAnalysis = isExplain ? removeExplainPrefix(strippedQuery) : strippedQuery;
+  const parseResult = parseReadonlyStatement(queryForAnalysis);
+  if (!parseResult.allowed || !parseResult.statement) {
     return {
       ...baseResult,
       isExplain,
-      reason: "Only SELECT, WITH ... SELECT, and EXPLAIN SELECT statements are allowed."
+      reason: parseResult.reason
     };
   }
 
-  const queryForTableDetection = isExplain ? removeExplainPrefix(strippedQuery) : strippedQuery;
-  const cteNames = extractCteNames(queryForTableDetection);
-  const detectedTables = detectTables(queryForTableDetection).filter(
-    (table) => table.schema || !cteNames.has(table.table.toLowerCase())
-  );
+  const detectedTables = detectTablesFromStatement(parseResult.statement);
   const tableCheck = policy.checkTables(detectedTables);
   if (!tableCheck.allowed) {
     return {
@@ -119,7 +66,7 @@ export function validateReadonlyQuery(
     };
   }
 
-  const requestedLimit = extractFirstLimit(strippedQuery);
+  const requestedLimit = extractStatementLimit(parseResult.statement);
   const limit =
     requestedLimit === undefined
       ? config.safety.default_limit
@@ -137,7 +84,7 @@ export function validateReadonlyQuery(
 }
 
 export function normalizeQuery(query: string): string {
-  return query.trim().replace(/\s+/g, " ");
+  return query.trim();
 }
 
 export function stripTrailingSemicolon(query: string): string {
@@ -145,29 +92,17 @@ export function stripTrailingSemicolon(query: string): string {
 }
 
 export function hasMultipleStatements(query: string): boolean {
-  const semicolons = [...query.matchAll(/;/g)];
-  if (semicolons.length === 0) {
+  try {
+    return parseSql(stripTrailingSemicolon(query)).length > 1;
+  } catch {
     return false;
   }
-
-  return semicolons.some((match) => match.index !== undefined && match.index < query.trim().length - 1);
 }
 
 export function startsWithAllowedRead(lowerQuery: string, isExplain: boolean): boolean {
-  if (isExplain) {
-    const explained = removeExplainPrefix(lowerQuery).trim();
-    return explained.startsWith("select ") || startsWithReadOnlyCte(explained);
-  }
-
-  return lowerQuery.startsWith("select ") || startsWithReadOnlyCte(lowerQuery);
-}
-
-function startsWithReadOnlyCte(lowerQuery: string): boolean {
-  if (!lowerQuery.startsWith("with ")) {
-    return false;
-  }
-
-  return /\)\s*select\s/.test(lowerQuery);
+  const query = isExplain ? removeExplainPrefix(lowerQuery).trim() : lowerQuery;
+  const result = parseReadonlyStatement(query);
+  return result.allowed;
 }
 
 function removeExplainPrefix(query: string): string {
@@ -188,54 +123,206 @@ export function wrapWithLimit(query: string, limit: number): string {
 }
 
 export function detectTables(query: string): DetectedTable[] {
-  const tables = new Map<string, DetectedTable>();
-
-  for (const pattern of TABLE_PATTERNS) {
-    for (const match of query.matchAll(pattern)) {
-      const parsed = parseTableName(match[1]);
-      if (!parsed) {
-        continue;
-      }
-
-      tables.set(`${parsed.schema ?? ""}.${parsed.table}`, parsed);
-    }
+  const result = parseReadonlyStatement(query);
+  if (!result.statement) {
+    return [];
   }
 
+  return detectTablesFromStatement(result.statement);
+}
+
+function parseReadonlyStatement(query: string): {
+  allowed: boolean;
+  reason?: string;
+  statement?: Statement;
+} {
+  let statements: Statement[];
+  try {
+    statements = parseSql(query);
+  } catch (error) {
+    return {
+      allowed: false,
+      reason: `SQL could not be parsed: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+
+  if (statements.length !== 1) {
+    return {
+      allowed: false,
+      reason: "Multiple SQL statements are not allowed."
+    };
+  }
+
+  const [statement] = statements;
+  if (!isReadonlyStatement(statement)) {
+    return {
+      allowed: false,
+      reason: `Statement type "${statementType(statement).toUpperCase()}" is not allowed in read-only queries.`
+    };
+  }
+
+  return {
+    allowed: true,
+    statement
+  };
+}
+
+function parseSql(query: string): Statement[] {
+  return parse(stripTrailingSemicolon(query)) as Statement[];
+}
+
+function isReadonlyStatement(statement: unknown): boolean {
+  if (!isAstNode(statement)) {
+    return false;
+  }
+
+  switch (statement.type) {
+    case "select":
+      return statement.for === undefined;
+    case "union":
+    case "union all":
+      return isReadonlyStatement(statement.left) && isReadonlyStatement(statement.right);
+    case "with":
+      return (
+        Array.isArray(statement.bind) &&
+        statement.bind.every((binding) => isReadonlyStatement(binding.statement)) &&
+        isReadonlyStatement(statement.in)
+      );
+    case "with recursive":
+      return isReadonlyStatement(statement.bind) && isReadonlyStatement(statement.in);
+    default:
+      return false;
+  }
+}
+
+function detectTablesFromStatement(statement: Statement): DetectedTable[] {
+  const tables = new Map<string, DetectedTable>();
+  collectTables(statement, new Set(), tables);
   return [...tables.values()];
 }
 
-function extractCteNames(query: string): Set<string> {
-  const names = new Set<string>();
-  if (!query.trim().toLowerCase().startsWith("with ")) {
-    return names;
+function collectTables(node: unknown, cteNames: Set<string>, tables: Map<string, DetectedTable>): void {
+  if (!node) {
+    return;
   }
 
-  for (const match of query.matchAll(/\bwith\s+(?:recursive\s+)?("[^"]+"|[a-zA-Z_][\w$]*)\s+as\s*\(/gi)) {
-    names.add(match[1].replaceAll('"', "").toLowerCase());
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      collectTables(item, cteNames, tables);
+    }
+    return;
   }
 
-  for (const match of query.matchAll(/\)\s*,\s*("[^"]+"|[a-zA-Z_][\w$]*)\s+as\s*\(/gi)) {
-    names.add(match[1].replaceAll('"', "").toLowerCase());
+  if (!isAstNode(node)) {
+    return;
   }
 
-  return names;
+  if (node.type === "with") {
+    const scopedCtes = new Set(cteNames);
+    for (const binding of arrayValue(node.bind)) {
+      collectTables(binding.statement, scopedCtes, tables);
+      const alias = readName(binding.alias);
+      if (alias) {
+        scopedCtes.add(alias.toLowerCase());
+      }
+    }
+
+    collectTables(node.in, scopedCtes, tables);
+    return;
+  }
+
+  if (node.type === "with recursive") {
+    const scopedCtes = new Set(cteNames);
+    const alias = readName(node.alias);
+    if (alias) {
+      scopedCtes.add(alias.toLowerCase());
+    }
+
+    collectTables(node.bind, scopedCtes, tables);
+    collectTables(node.in, scopedCtes, tables);
+    return;
+  }
+
+  if (node.type === "table") {
+    const parsed = parseTableName(node.name);
+    if (parsed && (parsed.schema || !cteNames.has(parsed.table.toLowerCase()))) {
+      tables.set(`${parsed.schema ?? ""}.${parsed.table}`, parsed);
+    }
+    collectTables(node.join, cteNames, tables);
+    return;
+  }
+
+  for (const value of Object.values(node)) {
+    collectTables(value, cteNames, tables);
+  }
 }
 
-function parseTableName(raw: string): DetectedTable | undefined {
-  const cleaned = raw
-    .split(/\s+/)[0]
-    .replaceAll('"', "")
-    .split(".")
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (cleaned.length === 1) {
-    return { table: cleaned[0] };
+function extractStatementLimit(statement: unknown): number | undefined {
+  if (!isAstNode(statement)) {
+    return undefined;
   }
 
-  if (cleaned.length === 2) {
-    return { schema: cleaned[0], table: cleaned[1] };
+  if (statement.type === "with") {
+    return extractStatementLimit(statement.in);
+  }
+
+  if (statement.type === "with recursive") {
+    return extractStatementLimit(statement.in);
+  }
+
+  if (statement.type === "select") {
+    const limit = statement.limit;
+    if (isRecord(limit) && isAstNode(limit.limit) && limit.limit.type === "integer") {
+      return Number(limit.limit.value);
+    }
   }
 
   return undefined;
+}
+
+function parseTableName(raw: unknown): DetectedTable | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+
+  const schema = readName(raw.schema);
+  const table = readName(raw.name);
+
+  if (table && schema) {
+    return { schema, table };
+  }
+
+  if (table) {
+    return { table };
+  }
+
+  return undefined;
+}
+
+function readName(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (isRecord(value) && typeof value.name === "string") {
+    return value.name;
+  }
+
+  return undefined;
+}
+
+function isAstNode(value: unknown): value is Record<string, unknown> & { type: string } {
+  return isRecord(value) && typeof value.type === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function arrayValue(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function statementType(statement: unknown): string {
+  return isAstNode(statement) ? statement.type : "unknown";
 }

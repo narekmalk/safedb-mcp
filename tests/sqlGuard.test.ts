@@ -9,7 +9,7 @@ describe("sqlGuard", () => {
     const result = validateReadonlyQuery("drop table users", config);
 
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("DROP");
+    expect(result.reason).toContain("DROP TABLE");
   });
 
   it("blocks multiple statements", () => {
@@ -39,6 +39,32 @@ describe("sqlGuard", () => {
 
     expect(result.allowed).toBe(true);
     expect(result.detectedTables).toEqual([{ table: "users" }]);
+  });
+
+  it("tracks chained CTEs and aliases back to real tables", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "with u as (select * from users), recent as (select * from u join orders o on true) select * from recent",
+      config
+    );
+
+    expect(result.allowed).toBe(true);
+    expect(result.detectedTables).toEqual([{ table: "users" }, { table: "orders" }]);
+  });
+
+  it("allows blocked keywords inside string literals", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery("select * from users where note = 'drop table users'", config);
+
+    expect(result.allowed).toBe(true);
+    expect(result.detectedTables).toEqual([{ table: "users" }]);
+  });
+
+  it("allows semicolons inside string literals", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery("select * from users where note = 'first; second'", config);
+
+    expect(result.allowed).toBe(true);
   });
 
   it("wraps queries with a safe max limit", () => {
@@ -75,6 +101,26 @@ describe("sqlGuard", () => {
     expect(result.reason).toContain("not in the allowlist");
   });
 
+  it("detects denied tables inside nested subqueries", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "select * from users where exists (select 1 from public.secrets where secrets.id = users.id)",
+      config
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("explicitly denied");
+    expect(result.detectedTables).toEqual([{ table: "users" }, { schema: "public", table: "secrets" }]);
+  });
+
+  it("blocks SELECT FOR UPDATE locking clauses", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery("select * from users for update", config);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("SELECT");
+  });
+
   it("blocks ambiguous unqualified tables when more than one schema matches", () => {
     const config = baseConfig({
       access: {
@@ -94,5 +140,11 @@ describe("sqlGuard", () => {
       { schema: "public", table: "users" },
       { table: "orders" }
     ]);
+  });
+
+  it("detects tables through subqueries and unions", () => {
+    expect(
+      detectTables("select * from (select * from users) u union select * from orders")
+    ).toEqual([{ table: "users" }, { table: "orders" }]);
   });
 });

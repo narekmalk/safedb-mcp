@@ -49,6 +49,7 @@
     "@modelcontextprotocol/sdk": "^1.13.0",
     "commander": "^12.1.0",
     "pg": "^8.13.1",
+    "pgsql-ast-parser": "^12.0.2",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"
   },
