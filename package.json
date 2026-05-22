@@ -4,6 +4,19 @@
   "version": "0.4.0",
   "description": "A secure MCP server that lets AI agents query databases safely.",
   "type": "module",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "postgres",
+    "postgresql",
+    "sql",
+    "database",
+    "read-only",
+    "security",
+    "pii",
+    "audit-log",
+    "ai-agents"
+  ],
   "homepage": "https://github.com/narekmalk/safedb-mcp#readme",
   "repository": {
     "type": "git",
