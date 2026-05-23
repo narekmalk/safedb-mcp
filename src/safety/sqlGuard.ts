@@ -190,7 +190,9 @@ function parseSql(query: string, driver: DatabaseDriver): unknown[] {
     return parsePostgresSql(query);
   }
 
-  const ast = mySqlParser.astify(stripTrailingSemicolon(query), { database: "mysql" });
+  const ast = mySqlParser.astify(stripTrailingSemicolon(query), {
+    database: driver === "sqlite" ? "sqlite" : "mysql"
+  });
   return Array.isArray(ast) ? ast : [ast];
 }
 

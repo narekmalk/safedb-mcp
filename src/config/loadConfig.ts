@@ -42,6 +42,7 @@ export function configFromEnv(): SafeDbConfig {
     database: {
       type: process.env.SAFEDB_DATABASE_TYPE,
       url: process.env.DATABASE_URL,
+      path: process.env.SQLITE_PATH,
       host: process.env.PGHOST,
       port: process.env.PGPORT,
       database: process.env.PGDATABASE,

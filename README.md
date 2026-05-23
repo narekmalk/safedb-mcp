@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/%40safedb%2Fsafedb-mcp)](https://www.npmjs.com/package/@safedb/safedb-mcp)
 
-SafeDB MCP is a secure Model Context Protocol server that lets AI agents inspect and query Postgres, MySQL, and MariaDB with strict read-only guardrails. It is designed for teams that want useful database access without handing an agent unrestricted production credentials.
+SafeDB MCP is a secure Model Context Protocol server that lets AI agents inspect and query Postgres, MySQL, MariaDB, and SQLite with strict read-only guardrails. It is designed for teams that want useful database access without handing an agent unrestricted production credentials.
 
 Direct database credentials are dangerous for agents because a single bad prompt, tool call, or generated SQL statement can mutate data, exfiltrate sensitive columns, or run expensive queries. SafeDB MCP puts a policy layer between the agent and your database: only configured schemas and tables are visible, SQL is parsed and validated before execution, row counts are capped, results are masked, and every query attempt is audited.
 
@@ -13,6 +13,7 @@ This project is an MVP. It prefers false positives and blocked queries over unsa
 - MCP tools: `list_schemas`, `list_tables`, `describe_table`, `run_readonly_query`, `explain_query`, `get_safedb_policy`
 - Postgres support through `pg`
 - MySQL and MariaDB support through `mysql2`
+- SQLite file support through `sql.js`
 - YAML or JSON config with environment expansion
 - AST-backed read-only SQL guardrails for `SELECT`, `WITH ... SELECT`, `UNION`, and `EXPLAIN SELECT`
 - Table detection through joins, CTEs, nested subqueries, aliases, and unions
@@ -110,6 +111,23 @@ access:
         - secrets
 ```
 
+For SQLite, set `database.type` to `sqlite`, point `database.path` at the `.db` file, and use `main` as the access schema:
+
+```yaml
+database:
+  type: sqlite
+  path: ./app.db
+
+access:
+  schemas:
+    main:
+      allow_tables:
+        - users
+        - orders
+      deny_tables:
+        - secrets
+```
+
 ## MCP Client Config
 
 Claude Desktop:
@@ -177,7 +195,6 @@ npm run lint
 - Column-level projection enforcement so masked fields cannot be bypassed with aliases.
 - Per-tool and per-table rate limits.
 - Optional OpenTelemetry traces.
-- SQLite adapter.
 - Signed audit logs.
 - Published Docker image and Helm chart.
 

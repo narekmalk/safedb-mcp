@@ -12,6 +12,12 @@ For MySQL or MariaDB, set `database.type` in `safedb.yaml` and use a MySQL-compa
 DATABASE_URL=mysql://readonly:password@localhost:3306/app safedb-mcp --config safedb.yaml
 ```
 
+For SQLite, set `database.type: sqlite` and point `database.path` at a local database file:
+
+```bash
+safedb-mcp --config safedb.yaml
+```
+
 ## Initialize Config
 
 ```bash

@@ -36,6 +36,12 @@ describe("config", () => {
     ).toBe("mariadb");
   });
 
+  it("accepts sqlite database paths", () => {
+    expect(validateConfig(baseConfig({ database: { type: "sqlite", path: "app.db" } })).database.type).toBe(
+      "sqlite"
+    );
+  });
+
   it("requires an access schema", () => {
     const config = baseConfig({
       access: {

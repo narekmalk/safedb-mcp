@@ -25,7 +25,7 @@ database:
   ssl: false
 ```
 
-- `type`: `postgres`, `mysql`, or `mariadb`. Defaults to `postgres`.
+- `type`: `postgres`, `mysql`, `mariadb`, or `sqlite`. Defaults to `postgres`.
 
 For MySQL or MariaDB, use the database name as the access schema:
 
@@ -43,6 +43,21 @@ access:
 ```
 
 SafeDB never intentionally logs database passwords or connection URLs. You should still use a dedicated database role with read-only grants.
+
+For SQLite, use `database.path` and configure the `main` schema:
+
+```yaml
+database:
+  type: sqlite
+  path: ./app.db
+
+access:
+  schemas:
+    main:
+      allow_tables:
+        - users
+        - orders
+```
 
 ## Safety
 
@@ -76,7 +91,7 @@ access:
         users.password_hash: redact
 ```
 
-Every queried table must be in an allowed schema and allowlisted table set. `deny_tables` wins over `allow_tables`. In MySQL and MariaDB, “schema” means the database name.
+Every queried table must be in an allowed schema and allowlisted table set. `deny_tables` wins over `allow_tables`. In MySQL and MariaDB, “schema” means the database name. In SQLite, use the `main` schema.
 
 Column masks can be configured as:
 

@@ -207,4 +207,41 @@ describe("sqlGuard", () => {
       detectTables("select * from (select * from users) u union select * from orders", config)
     ).toEqual([{ table: "users" }, { table: "orders" }]);
   });
+
+  it("validates SQLite queries with the SQLite dialect parser", () => {
+    const config = baseConfig({
+      database: { type: "sqlite", path: "app.db" },
+      access: {
+        schemas: {
+          main: {
+            allow_tables: ["users", "orders"],
+            deny_tables: [],
+            column_masks: {}
+          }
+        }
+      }
+    });
+
+    const result = validateReadonlyQuery(
+      "with u as (select * from main.users), recent as (select * from u join main.orders o on true) select * from recent limit 10",
+      config
+    );
+
+    expect(result.allowed).toBe(true);
+    expect(result.limit).toBe(10);
+    expect(result.detectedTables).toEqual([
+      { schema: "main", table: "users" },
+      { schema: "main", table: "orders" }
+    ]);
+  });
+
+  it("detects SQLite tables through subqueries and unions", () => {
+    const config = baseConfig({
+      database: { type: "sqlite", path: "app.db" }
+    });
+
+    expect(
+      detectTables("select * from (select * from users) u union select * from orders", config)
+    ).toEqual([{ table: "users" }, { table: "orders" }]);
+  });
 });

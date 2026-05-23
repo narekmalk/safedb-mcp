@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SafeDbConfig } from "../types.js";
 
 const maskStrategySchema = z.enum(["redact", "email", "partial", "hash"]);
-const databaseDriverSchema = z.enum(["postgres", "mysql", "mariadb"]);
+const databaseDriverSchema = z.enum(["postgres", "mysql", "mariadb", "sqlite"]);
 
 const schemaAccessSchema = z
   .object({
@@ -21,13 +21,20 @@ export const safeDbConfigSchema = z
         host: z.string().min(1).optional(),
         port: z.coerce.number().int().positive().max(65535).optional(),
         database: z.string().min(1).optional(),
+        path: z.string().min(1).optional(),
         user: z.string().min(1).optional(),
         password: z.string().optional(),
         ssl: z.boolean().optional()
       })
       .strict()
-      .refine((value) => value.url || (value.host && value.database && value.user), {
-        message: "database.url or database.host/database/user must be configured"
+      .refine((value) => {
+        if (value.type === "sqlite") {
+          return Boolean(value.path || value.url);
+        }
+
+        return Boolean(value.url || (value.host && value.database && value.user));
+      }, {
+        message: "database.url, database.path, or database.host/database/user must be configured"
       }),
     safety: z
       .object({

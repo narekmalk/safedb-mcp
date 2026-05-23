@@ -1,5 +1,5 @@
 export type MaskStrategy = "redact" | "email" | "partial" | "hash";
-export type DatabaseDriver = "postgres" | "mysql" | "mariadb";
+export type DatabaseDriver = "postgres" | "mysql" | "mariadb" | "sqlite";
 
 export type ColumnMasks = Record<string, MaskStrategy>;
 
@@ -16,6 +16,7 @@ export interface SafeDbConfig {
     host?: string;
     port?: number;
     database?: string;
+    path?: string;
     user?: string;
     password?: string;
     ssl?: boolean;
