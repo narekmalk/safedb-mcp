@@ -26,6 +26,16 @@ describe("config", () => {
     expect(() => validateConfig(config)).toThrow(/default_limit/);
   });
 
+  it("accepts mysql and mariadb database types", () => {
+    expect(validateConfig(baseConfig({ database: { type: "mysql", url: "mysql://user:pass@example.test/app" } })).database.type).toBe(
+      "mysql"
+    );
+    expect(
+      validateConfig(baseConfig({ database: { type: "mariadb", url: "mysql://user:pass@example.test/app" } }))
+        .database.type
+    ).toBe("mariadb");
+  });
+
   it("requires an access schema", () => {
     const config = baseConfig({
       access: {

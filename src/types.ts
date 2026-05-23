@@ -1,4 +1,5 @@
 export type MaskStrategy = "redact" | "email" | "partial" | "hash";
+export type DatabaseDriver = "postgres" | "mysql" | "mariadb";
 
 export type ColumnMasks = Record<string, MaskStrategy>;
 
@@ -10,6 +11,7 @@ export interface SchemaAccessConfig {
 
 export interface SafeDbConfig {
   database: {
+    type?: DatabaseDriver;
     url?: string;
     host?: string;
     port?: number;
@@ -64,4 +66,8 @@ export interface GuardResult {
 
 export interface QueryResultRow {
   [column: string]: unknown;
+}
+
+export function databaseDriver(config: SafeDbConfig): DatabaseDriver {
+  return config.database.type ?? "postgres";
 }

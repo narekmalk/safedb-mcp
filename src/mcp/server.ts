@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { AuditLogger } from "../audit/auditLogger.js";
 import type { SafeDbConfig, ToolResult } from "../types.js";
-import { PostgresDatabase } from "../db/postgres.js";
+import { createDatabaseClient } from "../db/factory.js";
 import { AccessPolicy } from "../safety/policy.js";
 import { describeTable } from "../tools/describeTable.js";
 import { explainQuery } from "../tools/explainQuery.js";
@@ -85,7 +85,7 @@ const TOOL_DEFINITIONS = [
 export function createToolContext(config: SafeDbConfig): ToolContext {
   return {
     config,
-    db: new PostgresDatabase(config),
+    db: createDatabaseClient(config),
     policy: new AccessPolicy(config),
     audit: new AuditLogger(config.audit?.path)
   };

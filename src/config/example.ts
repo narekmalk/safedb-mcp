@@ -1,4 +1,5 @@
 export const EXAMPLE_CONFIG = `database:
+  type: postgres
   url: \${DATABASE_URL}
 
 safety:

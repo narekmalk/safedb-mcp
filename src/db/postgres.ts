@@ -1,16 +1,10 @@
 import pg from "pg";
 import type { QueryResultRow, SafeDbConfig } from "../types.js";
+import type { ColumnDescription, DatabaseClient } from "./types.js";
 
 const { Pool } = pg;
 
-export interface ColumnDescription {
-  column_name: string;
-  data_type: string;
-  is_nullable: string;
-  column_default: string | null;
-}
-
-export class PostgresDatabase {
+export class PostgresDatabase implements DatabaseClient {
   private readonly pool: pg.Pool;
 
   constructor(private readonly config: SafeDbConfig) {

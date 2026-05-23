@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SafeDbConfig } from "../types.js";
 
 const maskStrategySchema = z.enum(["redact", "email", "partial", "hash"]);
+const databaseDriverSchema = z.enum(["postgres", "mysql", "mariadb"]);
 
 const schemaAccessSchema = z
   .object({
@@ -15,6 +16,7 @@ export const safeDbConfigSchema = z
   .object({
     database: z
       .object({
+        type: databaseDriverSchema.optional().default("postgres"),
         url: z.string().min(1).optional(),
         host: z.string().min(1).optional(),
         port: z.coerce.number().int().positive().max(65535).optional(),

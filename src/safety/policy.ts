@@ -81,6 +81,15 @@ export class AccessPolicy {
     return Object.keys(this.config.access.schemas);
   }
 
+  defaultSchema(): string {
+    const schemas = this.allowedSchemas();
+    if (schemas.includes("public")) {
+      return "public";
+    }
+
+    return schemas.length === 1 ? schemas[0] : "public";
+  }
+
   allowedTables(schema: string): string[] {
     const schemaConfig = this.config.access.schemas[schema];
     if (!schemaConfig) {

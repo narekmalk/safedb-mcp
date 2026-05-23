@@ -6,6 +6,12 @@
 DATABASE_URL=postgres://readonly:password@localhost:5432/app safedb-mcp --config safedb.yaml
 ```
 
+For MySQL or MariaDB, set `database.type` in `safedb.yaml` and use a MySQL-compatible URL:
+
+```bash
+DATABASE_URL=mysql://readonly:password@localhost:3306/app safedb-mcp --config safedb.yaml
+```
+
 ## Initialize Config
 
 ```bash
@@ -49,7 +55,7 @@ SafeDB returns:
   "ok": false,
   "error": {
     "code": "QUERY_BLOCKED",
-    "message": "Keyword \"DELETE\" is not allowed in read-only queries."
+    "message": "Statement type \"DELETE\" is not allowed in read-only queries."
   }
 }
 ```

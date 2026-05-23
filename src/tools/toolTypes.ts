@@ -1,11 +1,11 @@
 import type { AuditLogger } from "../audit/auditLogger.js";
-import type { PostgresDatabase } from "../db/postgres.js";
+import type { DatabaseClient } from "../db/types.js";
 import type { AccessPolicy } from "../safety/policy.js";
 import type { SafeDbConfig, StructuredError, ToolResult } from "../types.js";
 
 export interface ToolContext {
   config: SafeDbConfig;
-  db: PostgresDatabase;
+  db: DatabaseClient;
   policy: AccessPolicy;
   audit: AuditLogger;
 }

@@ -147,4 +147,64 @@ describe("sqlGuard", () => {
       detectTables("select * from (select * from users) u union select * from orders")
     ).toEqual([{ table: "users" }, { table: "orders" }]);
   });
+
+  it("validates MySQL queries with the MySQL dialect parser", () => {
+    const config = baseConfig({
+      database: { type: "mysql", url: "mysql://user:pass@example.test/app" },
+      access: {
+        schemas: {
+          app: {
+            allow_tables: ["users", "orders"],
+            deny_tables: [],
+            column_masks: {}
+          }
+        }
+      }
+    });
+
+    const result = validateReadonlyQuery(
+      "with u as (select * from app.users), recent as (select * from u join app.orders o on true) select * from recent limit 10",
+      config
+    );
+
+    expect(result.allowed).toBe(true);
+    expect(result.limit).toBe(10);
+    expect(result.detectedTables).toEqual([
+      { schema: "app", table: "users" },
+      { schema: "app", table: "orders" }
+    ]);
+  });
+
+  it("blocks MySQL locking reads", () => {
+    const config = baseConfig({
+      database: { type: "mysql", url: "mysql://user:pass@example.test/app" }
+    });
+    const result = validateReadonlyQuery("select * from users for update", config);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("SELECT");
+  });
+
+  it("blocks MySQL locking reads inside nested subqueries", () => {
+    const config = baseConfig({
+      database: { type: "mysql", url: "mysql://user:pass@example.test/app" }
+    });
+    const result = validateReadonlyQuery(
+      "select * from users where exists (select * from orders for update)",
+      config
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("SELECT");
+  });
+
+  it("detects MySQL tables through subqueries and unions", () => {
+    const config = baseConfig({
+      database: { type: "mariadb", url: "mysql://user:pass@example.test/app" }
+    });
+
+    expect(
+      detectTables("select * from (select * from users) u union select * from orders", config)
+    ).toEqual([{ table: "users" }, { table: "orders" }]);
+  });
 });

@@ -5,7 +5,7 @@ export async function describeTable(
   context: ToolContext,
   input: { schema?: string; table?: string }
 ) {
-  const schema = input.schema ?? "public";
+  const schema = input.schema ?? context.policy.defaultSchema();
   const table = input.table;
 
   if (!table) {

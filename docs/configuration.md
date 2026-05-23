@@ -8,6 +8,7 @@ Environment variables can be referenced with `${NAME}` or `${NAME:-fallback}`.
 
 ```yaml
 database:
+  type: postgres
   url: ${DATABASE_URL}
 ```
 
@@ -15,6 +16,7 @@ or:
 
 ```yaml
 database:
+  type: postgres
   host: localhost
   port: 5432
   database: app
@@ -23,7 +25,24 @@ database:
   ssl: false
 ```
 
-SafeDB never intentionally logs database passwords or connection URLs. You should still use a dedicated Postgres role with read-only grants.
+- `type`: `postgres`, `mysql`, or `mariadb`. Defaults to `postgres`.
+
+For MySQL or MariaDB, use the database name as the access schema:
+
+```yaml
+database:
+  type: mysql
+  url: ${DATABASE_URL}
+
+access:
+  schemas:
+    app:
+      allow_tables:
+        - users
+        - orders
+```
+
+SafeDB never intentionally logs database passwords or connection URLs. You should still use a dedicated database role with read-only grants.
 
 ## Safety
 
@@ -37,7 +56,7 @@ safety:
 
 - `default_limit`: used when a query has no numeric `LIMIT`.
 - `max_limit`: upper bound for returned rows.
-- `statement_timeout_ms`: set with `set_config('statement_timeout', ..., true)` inside the read-only transaction.
+- `statement_timeout_ms`: used as Postgres `statement_timeout` and as the MySQL/MariaDB query timeout.
 - `allow_explain`: enables or disables the `explain_query` tool.
 
 ## Access
@@ -57,7 +76,7 @@ access:
         users.password_hash: redact
 ```
 
-Every queried table must be in an allowed schema and allowlisted table set. `deny_tables` wins over `allow_tables`.
+Every queried table must be in an allowed schema and allowlisted table set. `deny_tables` wins over `allow_tables`. In MySQL and MariaDB, “schema” means the database name.
 
 Column masks can be configured as:
 

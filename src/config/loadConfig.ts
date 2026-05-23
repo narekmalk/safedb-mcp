@@ -40,6 +40,7 @@ export function expandEnv(raw: string, env: NodeJS.ProcessEnv = process.env): st
 export function configFromEnv(): SafeDbConfig {
   return validateConfig({
     database: {
+      type: process.env.SAFEDB_DATABASE_TYPE,
       url: process.env.DATABASE_URL,
       host: process.env.PGHOST,
       port: process.env.PGPORT,

@@ -6,14 +6,14 @@ import { Command } from "commander";
 import { EXAMPLE_CONFIG } from "./config/example.js";
 import { loadConfig } from "./config/loadConfig.js";
 import { validateConfig } from "./config/schema.js";
-import { PostgresDatabase } from "./db/postgres.js";
+import { createDatabaseClient } from "./db/factory.js";
 import { startMcpServer } from "./mcp/server.js";
 
 const program = new Command();
 
 program
   .name("safedb-mcp")
-  .description("Secure MCP server for guarded read-only Postgres access.")
+  .description("Secure MCP server for guarded read-only database access.")
   .version("0.1.0")
   .option("-c, --config <path>", "Path to SafeDB config file", "safedb.yaml")
   .action(async (options: { config: string }) => {
@@ -47,10 +47,10 @@ program
 
 program
   .command("test-connection")
-  .description("Validate config and test the Postgres connection.")
+  .description("Validate config and test the database connection.")
   .action(async (_options: unknown, command: Command) => {
     const config = await loadConfig(configPath(command));
-    const db = new PostgresDatabase(config);
+    const db = createDatabaseClient(config);
 
     try {
       await db.testConnection();
