@@ -9,10 +9,11 @@ SafeDB MCP is a conservative policy gateway for AI database access. It reduces r
 3. SafeDB accepts only read-only `SELECT`, `WITH ... SELECT`, `UNION`, or `EXPLAIN SELECT` shapes.
 4. SafeDB detects real tables through joins, CTEs, aliases, nested subqueries, and unions.
 5. The access policy checks schemas, allowlists, and denylists.
-6. `run_readonly_query` wraps the query in an outer `LIMIT`.
-7. The database executes inside a read-only transaction with a local timeout where the driver supports it.
-8. Result rows are masked.
-9. The query attempt is written to JSONL audit logs.
+6. SafeDB checks projected columns so configured masks cannot be bypassed with aliases or expressions.
+7. `run_readonly_query` wraps the query in an outer `LIMIT`.
+8. The database executes inside a read-only transaction with a local timeout where the driver supports it.
+9. Result rows are masked.
+10. The query attempt is written to JSONL audit logs.
 
 ## Guardrails
 
@@ -24,6 +25,7 @@ SafeDB blocks:
 - Tables outside the configured allowlist
 - Explicitly denied tables
 - Ambiguous queries where no table can be detected
+- Masked columns selected through aliases, expressions, or multi-table projections that cannot be safely masked
 
 ## Limitations
 
@@ -39,6 +41,4 @@ Do not treat SafeDB MCP as a sandbox for untrusted SQL. Treat it as a defense-in
 
 ## Sensitive Data
 
-Masking is applied to returned rows after execution. Masking is based on returned column names and optional single-table hints. Agents should not be allowed to query sensitive columns unless a mask is configured and tested.
-
-Future versions should add column-level projection enforcement so masked fields cannot be bypassed with aliases.
+Masking is applied to returned rows after execution. Masking is based on returned column names and optional single-table hints. The SQL guard also blocks masked columns when they are projected through aliases, expressions, or multi-table outputs that SafeDB cannot reliably tie back to a mask.

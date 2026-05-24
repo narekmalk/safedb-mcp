@@ -58,6 +58,21 @@ export function validateReadonlyQuery(
     };
   }
 
+  const projectionCheck = checkMaskedProjectionAliases(
+    parseResult.statement,
+    parseResult.driver,
+    detectedTables,
+    policy
+  );
+  if (!projectionCheck.allowed) {
+    return {
+      ...baseResult,
+      isExplain,
+      detectedTables,
+      reason: projectionCheck.reason
+    };
+  }
+
   if (isExplain) {
     return {
       allowed: true,
@@ -373,6 +388,396 @@ function collectMySqlTables(
 
 function extractStatementLimit(statement: unknown, driver: DatabaseDriver): number | undefined {
   return driver === "postgres" ? extractPostgresStatementLimit(statement) : extractMySqlStatementLimit(statement);
+}
+
+interface ProjectionCheck {
+  allowed: boolean;
+  reason?: string;
+}
+
+interface ColumnLineage {
+  masked: boolean;
+  sourceColumn: string;
+}
+
+interface ProjectionSource {
+  columns?: Map<string, ColumnLineage>;
+  maskedColumns?: Set<string>;
+}
+
+function checkMaskedProjectionAliases(
+  statement: unknown,
+  driver: DatabaseDriver,
+  detectedTables: DetectedTable[],
+  policy: AccessPolicy
+): ProjectionCheck {
+  const context = {
+    canMaskOutput: (column: string) => detectedTables.length === 1 || policy.hasGlobalMask(column),
+    policy
+  };
+
+  const result =
+    driver === "postgres"
+      ? analyzePostgresProjection(statement, new Map(), context)
+      : analyzeMySqlProjection(statement, new Map(), context);
+
+  return result.reason ? { allowed: false, reason: result.reason } : { allowed: true };
+}
+
+function analyzePostgresProjection(
+  statement: unknown,
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: { canMaskOutput: (column: string) => boolean; policy: AccessPolicy }
+): { columns: Map<string, ColumnLineage>; reason?: string } {
+  if (!isAstNode(statement)) {
+    return { columns: new Map() };
+  }
+
+  if (statement.type === "with") {
+    const scoped = new Map(ctes);
+    for (const binding of arrayValue(statement.bind)) {
+      const analyzed = analyzePostgresProjection(binding.statement, scoped, context);
+      if (analyzed.reason) {
+        return analyzed;
+      }
+
+      const alias = readName(binding.alias);
+      if (alias) {
+        scoped.set(alias.toLowerCase(), analyzed.columns);
+      }
+    }
+
+    return analyzePostgresProjection(statement.in, scoped, context);
+  }
+
+  if (statement.type === "with recursive") {
+    const analyzed = analyzePostgresProjection(statement.bind, ctes, context);
+    if (analyzed.reason) {
+      return analyzed;
+    }
+
+    const scoped = new Map(ctes);
+    const alias = readName(statement.alias);
+    if (alias) {
+      scoped.set(alias.toLowerCase(), analyzed.columns);
+    }
+
+    return analyzePostgresProjection(statement.in, scoped, context);
+  }
+
+  if (statement.type === "union" || statement.type === "union all") {
+    const left = analyzePostgresProjection(statement.left, ctes, context);
+    if (left.reason) {
+      return left;
+    }
+    return analyzePostgresProjection(statement.right, ctes, context);
+  }
+
+  if (statement.type !== "select") {
+    return { columns: new Map() };
+  }
+
+  const sources = buildPostgresProjectionSources(statement, ctes, context);
+  if (sources.reason) {
+    return { columns: new Map(), reason: sources.reason };
+  }
+
+  return analyzeProjectionColumns(arrayValue(statement.columns), sources.sources, context);
+}
+
+function buildPostgresProjectionSources(
+  statement: Record<string, unknown>,
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: { canMaskOutput: (column: string) => boolean; policy: AccessPolicy }
+): { sources: Map<string, ProjectionSource>; reason?: string } {
+  const sources = new Map<string, ProjectionSource>();
+
+  for (const from of arrayValue(statement.from)) {
+    if (from.type === "statement") {
+      const analyzed = analyzePostgresProjection(from.statement, ctes, context);
+      if (analyzed.reason) {
+        return { sources, reason: analyzed.reason };
+      }
+      sources.set(String(from.alias).toLowerCase(), { columns: analyzed.columns });
+      continue;
+    }
+
+    if (from.type !== "table") {
+      continue;
+    }
+
+    const table = parseTableName(from.name);
+    if (!table) {
+      continue;
+    }
+
+    const cte = !table.schema ? ctes.get(table.table.toLowerCase()) : undefined;
+    if (cte) {
+      sources.set(table.table.toLowerCase(), { columns: cte });
+      continue;
+    }
+
+    const schema = context.policy.resolveTableSchema(table);
+    const maskedColumns = new Set(context.policy.maskedColumnsForTable(schema, table.table));
+    sources.set(table.table.toLowerCase(), { maskedColumns });
+    const alias = isRecord(from.name) ? readName(from.name.alias) : undefined;
+    if (alias) {
+      sources.set(alias.toLowerCase(), { maskedColumns });
+    }
+  }
+
+  return { sources };
+}
+
+function analyzeMySqlProjection(
+  statement: unknown,
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: { canMaskOutput: (column: string) => boolean; policy: AccessPolicy }
+): { columns: Map<string, ColumnLineage>; reason?: string } {
+  if (!isRecord(statement) || statement.type !== "select") {
+    return { columns: new Map() };
+  }
+
+  const scoped = new Map(ctes);
+  for (const binding of arrayValue(statement.with)) {
+    const analyzed = analyzeMySqlProjection(readStatementAst(binding.stmt), scoped, context);
+    if (analyzed.reason) {
+      return analyzed;
+    }
+
+    const alias = readMySqlCteName(binding.name);
+    if (alias) {
+      scoped.set(alias.toLowerCase(), analyzed.columns);
+    }
+  }
+
+  const sources = buildMySqlProjectionSources(statement, scoped, context);
+  if (sources.reason) {
+    return { columns: new Map(), reason: sources.reason };
+  }
+
+  const analyzed = analyzeProjectionColumns(arrayValue(statement.columns), sources.sources, context);
+  if (analyzed.reason) {
+    return analyzed;
+  }
+
+  if (statement._next) {
+    const next = analyzeMySqlProjection(statement._next, scoped, context);
+    if (next.reason) {
+      return next;
+    }
+  }
+
+  return analyzed;
+}
+
+function buildMySqlProjectionSources(
+  statement: Record<string, unknown>,
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: { canMaskOutput: (column: string) => boolean; policy: AccessPolicy }
+): { sources: Map<string, ProjectionSource>; reason?: string } {
+  const sources = new Map<string, ProjectionSource>();
+
+  for (const from of arrayValue(statement.from)) {
+    if (isRecord(from.expr)) {
+      const analyzed = analyzeMySqlProjection(readStatementAst(from.expr), ctes, context);
+      if (analyzed.reason) {
+        return { sources, reason: analyzed.reason };
+      }
+      if (typeof from.as === "string") {
+        sources.set(from.as.toLowerCase(), { columns: analyzed.columns });
+      }
+      continue;
+    }
+
+    const table = parseMySqlTableName(from);
+    if (!table) {
+      continue;
+    }
+
+    const cte = !table.schema ? ctes.get(table.table.toLowerCase()) : undefined;
+    if (cte) {
+      sources.set(table.table.toLowerCase(), { columns: cte });
+      continue;
+    }
+
+    const schema = context.policy.resolveTableSchema(table);
+    const maskedColumns = new Set(context.policy.maskedColumnsForTable(schema, table.table));
+    sources.set(table.table.toLowerCase(), { maskedColumns });
+    if (typeof from.as === "string") {
+      sources.set(from.as.toLowerCase(), { maskedColumns });
+    }
+  }
+
+  return { sources };
+}
+
+function analyzeProjectionColumns(
+  columns: Record<string, unknown>[],
+  sources: Map<string, ProjectionSource>,
+  context: { canMaskOutput: (column: string) => boolean }
+): { columns: Map<string, ColumnLineage>; reason?: string } {
+  const output = new Map<string, ColumnLineage>();
+
+  for (const column of columns) {
+    const expr = column.expr;
+    const alias = readName(column.alias) ?? readName(column.as);
+
+    if (isStarRef(expr)) {
+      for (const [name, lineage] of expandStarLineage(expr, sources)) {
+        if (lineage.masked && !context.canMaskOutput(lineage.sourceColumn)) {
+          return {
+            columns: output,
+            reason: `Masked column "${lineage.sourceColumn}" cannot be projected from multi-table queries without a global mask.`
+          };
+        }
+        output.set(name, lineage);
+      }
+      continue;
+    }
+
+    if (isColumnRef(expr)) {
+      const lineage = resolveColumnLineage(expr, sources);
+      const outputName = alias ?? columnRefName(expr);
+      if (lineage?.masked) {
+        const reason = validateMaskedOutput(lineage, outputName, context.canMaskOutput);
+        if (reason) {
+          return { columns: output, reason };
+        }
+      }
+
+      if (outputName && lineage) {
+        output.set(outputName, lineage);
+      }
+      continue;
+    }
+
+    const maskedRefs = collectMaskedColumnRefs(expr, sources);
+    if (maskedRefs.length > 0) {
+      return {
+        columns: output,
+        reason: `Masked column "${maskedRefs[0].sourceColumn}" cannot be selected inside expressions.`
+      };
+    }
+  }
+
+  return { columns: output };
+}
+
+function validateMaskedOutput(
+  lineage: ColumnLineage,
+  outputName: string | undefined,
+  canMaskOutput: (column: string) => boolean
+): string | undefined {
+  if (!canMaskOutput(lineage.sourceColumn)) {
+    return `Masked column "${lineage.sourceColumn}" cannot be projected from multi-table queries without a global mask.`;
+  }
+
+  if (outputName !== lineage.sourceColumn) {
+    return `Masked column "${lineage.sourceColumn}" cannot be selected through alias "${outputName ?? "unknown"}".`;
+  }
+
+  return undefined;
+}
+
+function collectMaskedColumnRefs(expr: unknown, sources: Map<string, ProjectionSource>): ColumnLineage[] {
+  if (!expr) {
+    return [];
+  }
+
+  if (Array.isArray(expr)) {
+    return expr.flatMap((item) => collectMaskedColumnRefs(item, sources));
+  }
+
+  if (!isRecord(expr)) {
+    return [];
+  }
+
+  const lineage = isColumnRef(expr) ? resolveColumnLineage(expr, sources) : undefined;
+  const own = lineage?.masked ? [lineage] : [];
+  return own.concat(Object.values(expr).flatMap((value) => collectMaskedColumnRefs(value, sources)));
+}
+
+function resolveColumnLineage(expr: unknown, sources: Map<string, ProjectionSource>): ColumnLineage | undefined {
+  const column = columnRefName(expr);
+  if (!column || column === "*") {
+    return undefined;
+  }
+
+  const table = columnRefTable(expr);
+  if (table) {
+    return lineageFromSource(sources.get(table.toLowerCase()), column);
+  }
+
+  if (sources.size === 1) {
+    const [source] = sources.values();
+    return lineageFromSource(source, column);
+  }
+
+  return undefined;
+}
+
+function lineageFromSource(source: ProjectionSource | undefined, column: string): ColumnLineage | undefined {
+  if (!source) {
+    return undefined;
+  }
+
+  const derived = source.columns?.get(column);
+  if (derived) {
+    return derived;
+  }
+
+  return {
+    masked: source.maskedColumns?.has(column) ?? false,
+    sourceColumn: column
+  };
+}
+
+function expandStarLineage(
+  expr: unknown,
+  sources: Map<string, ProjectionSource>
+): Array<[string, ColumnLineage]> {
+  const table = columnRefTable(expr);
+  const selectedSources = table
+    ? [sources.get(table.toLowerCase())].filter((source): source is ProjectionSource => Boolean(source))
+    : [...sources.values()];
+  const output: Array<[string, ColumnLineage]> = [];
+
+  for (const source of selectedSources) {
+    if (source.columns) {
+      output.push(...source.columns.entries());
+    }
+
+    for (const column of source.maskedColumns ?? []) {
+      output.push([column, { masked: true, sourceColumn: column }]);
+    }
+  }
+
+  return output;
+}
+
+function isStarRef(expr: unknown): boolean {
+  return isColumnRef(expr) && columnRefName(expr) === "*";
+}
+
+function isColumnRef(expr: unknown): boolean {
+  return isRecord(expr) && (expr.type === "ref" || expr.type === "column_ref");
+}
+
+function columnRefName(expr: unknown): string | undefined {
+  if (!isRecord(expr)) {
+    return undefined;
+  }
+
+  return readName(expr.name) ?? readName(expr.column);
+}
+
+function columnRefTable(expr: unknown): string | undefined {
+  if (!isRecord(expr)) {
+    return undefined;
+  }
+
+  return readName(expr.table);
 }
 
 function extractPostgresStatementLimit(statement: unknown): number | undefined {

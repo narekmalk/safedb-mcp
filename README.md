@@ -17,6 +17,7 @@ This project is an MVP. It prefers false positives and blocked queries over unsa
 - YAML or JSON config with environment expansion
 - AST-backed read-only SQL guardrails for `SELECT`, `WITH ... SELECT`, `UNION`, and `EXPLAIN SELECT`
 - Table detection through joins, CTEs, nested subqueries, aliases, and unions
+- Column projection checks that block masked fields selected through aliases or expressions
 - Configurable table allowlists, denylists, row limits, and statement timeout
 - PII masking: `redact`, `email`, `partial`, and deterministic `hash`
 - JSONL audit log with no raw result data
@@ -169,6 +170,7 @@ SafeDB MCP aims to guarantee that:
 - Only configured schemas and tables are inspectable or queryable through the MCP tools.
 - SQL is parsed before execution, and mutating statement types or multiple statements are blocked.
 - Table access policy is checked against real tables found through joins, CTEs, nested subqueries, aliases, and unions.
+- Masked columns cannot be selected through aliases or expressions that would bypass response masking.
 - Query execution happens inside a read-only transaction with a local statement timeout where the driver supports it.
 - Returned rows are capped by an outer `LIMIT`.
 - Configured PII fields are masked before tool responses are returned.
@@ -192,7 +194,6 @@ npm run lint
 
 ## Roadmap
 
-- Column-level projection enforcement so masked fields cannot be bypassed with aliases.
 - Per-tool and per-table rate limits.
 - Optional OpenTelemetry traces.
 - Signed audit logs.

@@ -77,6 +77,37 @@ export class AccessPolicy {
     return undefined;
   }
 
+  hasGlobalMask(column: string): boolean {
+    return Object.values(this.config.access.schemas).some(
+      (schemaConfig) => schemaConfig.column_masks?.[column] !== undefined
+    );
+  }
+
+  maskedColumnsForTable(schema: string | undefined, table: string): string[] {
+    const resolvedSchema = schema ?? this.defaultSchemaForTable(table);
+    const columns = new Set<string>();
+
+    for (const [schemaName, schemaConfig] of Object.entries(this.config.access.schemas)) {
+      for (const key of Object.keys(schemaConfig.column_masks ?? {})) {
+        const parts = key.split(".");
+
+        if (parts.length === 1) {
+          columns.add(parts[0]);
+        } else if (parts.length === 2 && parts[0] === table) {
+          columns.add(parts[1]);
+        } else if (parts.length === 3 && parts[0] === (resolvedSchema ?? schemaName) && parts[1] === table) {
+          columns.add(parts[2]);
+        }
+      }
+    }
+
+    return [...columns];
+  }
+
+  resolveTableSchema(table: DetectedTable): string | undefined {
+    return table.schema ?? this.defaultSchemaForTable(table.table);
+  }
+
   allowedSchemas(): string[] {
     return Object.keys(this.config.access.schemas);
   }

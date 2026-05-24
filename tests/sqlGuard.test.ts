@@ -30,6 +30,51 @@ describe("sqlGuard", () => {
     );
   });
 
+  it("blocks masked columns selected through aliases", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery("select email as contact from public.users", config);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("cannot be selected through alias");
+  });
+
+  it("allows masked columns when the output column name remains maskable", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery("select email from public.users", config);
+
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks masked columns selected through CTE aliases", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "with u as (select email from users) select email as contact from u",
+      config
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("cannot be selected through alias");
+  });
+
+  it("blocks masked columns selected inside expressions", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery("select upper(email) from users", config);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("cannot be selected inside expressions");
+  });
+
+  it("blocks table-specific masked columns in multi-table projections", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "select users.email from users join orders on orders.user_id = users.id",
+      config
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("multi-table");
+  });
+
   it("allows simple read-only CTEs against allowed tables", () => {
     const config = baseConfig();
     const result = validateReadonlyQuery(
@@ -44,7 +89,7 @@ describe("sqlGuard", () => {
   it("tracks chained CTEs and aliases back to real tables", () => {
     const config = baseConfig();
     const result = validateReadonlyQuery(
-      "with u as (select * from users), recent as (select * from u join orders o on true) select * from recent",
+      "with u as (select id from users), recent as (select u.id from u join orders o on true) select id from recent",
       config
     );
 
@@ -175,6 +220,26 @@ describe("sqlGuard", () => {
     ]);
   });
 
+  it("blocks MySQL masked columns selected through aliases", () => {
+    const config = baseConfig({
+      database: { type: "mysql", url: "mysql://user:pass@example.test/app" },
+      access: {
+        schemas: {
+          app: {
+            allow_tables: ["users"],
+            deny_tables: [],
+            column_masks: { "users.email": "email" }
+          }
+        }
+      }
+    });
+
+    const result = validateReadonlyQuery("select email as contact from app.users", config);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("cannot be selected through alias");
+  });
+
   it("blocks MySQL locking reads", () => {
     const config = baseConfig({
       database: { type: "mysql", url: "mysql://user:pass@example.test/app" }
@@ -233,6 +298,26 @@ describe("sqlGuard", () => {
       { schema: "main", table: "users" },
       { schema: "main", table: "orders" }
     ]);
+  });
+
+  it("blocks SQLite masked columns selected through aliases", () => {
+    const config = baseConfig({
+      database: { type: "sqlite", path: "app.db" },
+      access: {
+        schemas: {
+          main: {
+            allow_tables: ["users"],
+            deny_tables: [],
+            column_masks: { "users.email": "email" }
+          }
+        }
+      }
+    });
+
+    const result = validateReadonlyQuery("select email as contact from main.users", config);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("cannot be selected through alias");
   });
 
   it("detects SQLite tables through subqueries and unions", () => {
