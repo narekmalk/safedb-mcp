@@ -4,5 +4,8 @@ coverage
 .git
 .github
 .npmrc
+.env
 *.log
+safedb.yaml
 safedb-audit.jsonl
+mcp-publisher.exe
