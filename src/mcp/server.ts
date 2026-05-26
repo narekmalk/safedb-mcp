@@ -95,7 +95,7 @@ export function createMcpServer(context: ToolContext): Server {
   const server = new Server(
     {
       name: "safedb-mcp",
-      version: "0.1.0"
+      version: "0.5.0"
     },
     {
       capabilities: {
