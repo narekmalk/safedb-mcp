@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/narekmalk/safedb-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/narekmalk/safedb-mcp/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/%40safedb%2Fsafedb-mcp)](https://www.npmjs.com/package/@safedb/safedb-mcp)
+[![safedb-mcp MCP server](https://glama.ai/mcp/servers/narekmalk/safedb-mcp/badges/card.svg)](https://glama.ai/mcp/servers/narekmalk/safedb-mcp)
+[![safedb-mcp MCP server](https://glama.ai/mcp/servers/narekmalk/safedb-mcp/badges/score.svg)](https://glama.ai/mcp/servers/narekmalk/safedb-mcp)
 
 SafeDB MCP is a secure Model Context Protocol server that lets AI agents inspect and query Postgres, MySQL, MariaDB, and SQLite with strict read-only guardrails. It is designed for teams that want useful database access without handing an agent unrestricted production credentials.
 

@@ -3,7 +3,10 @@
   "mcpName": "io.github.narekmalk/safedb-mcp",
   "version": "0.5.0",
   "description": "A secure MCP server that lets AI agents query databases safely.",
+  "license": "MIT",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -46,7 +49,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "check": "npm run build && npm run test && npm run lint"
+    "check": "npm run build && npm run test && npm run lint",
+    "prepack": "npm run check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",
