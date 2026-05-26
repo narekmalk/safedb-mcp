@@ -1,9 +1,11 @@
-import { Parser } from "node-sql-parser";
+import nodeSqlParser from "node-sql-parser";
 import { parse } from "pgsql-ast-parser";
+import type { Parser as NodeSqlParser } from "node-sql-parser";
 import type { Statement } from "pgsql-ast-parser";
 import { databaseDriver, type DatabaseDriver, type DetectedTable, type GuardResult, type SafeDbConfig } from "../types.js";
 import { AccessPolicy } from "./policy.js";
 
+const { Parser } = nodeSqlParser as unknown as { Parser: new () => NodeSqlParser };
 const mySqlParser = new Parser();
 
 export interface GuardOptions {
