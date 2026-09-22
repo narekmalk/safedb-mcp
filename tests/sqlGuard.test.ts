@@ -64,6 +64,38 @@ describe("sqlGuard", () => {
     expect(result.reason).toContain("cannot be selected inside expressions");
   });
 
+  it("blocks masked columns exposed through a scalar subquery in the projection", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "select (select ssn from users limit 1) as x from orders",
+      config
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("subquery");
+  });
+
+  it("blocks masked columns exposed through a subquery nested in an expression", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "select coalesce((select email from users limit 1), '') as e from orders",
+      config
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("subquery");
+  });
+
+  it("allows scalar subqueries that project no masked column", () => {
+    const config = baseConfig();
+    const result = validateReadonlyQuery(
+      "select (select id from users limit 1) as x from orders",
+      config
+    );
+
+    expect(result.allowed).toBe(true);
+  });
+
   it("blocks table-specific masked columns in multi-table projections", () => {
     const config = baseConfig();
     const result = validateReadonlyQuery(
