@@ -407,6 +407,14 @@ interface ProjectionSource {
   maskedColumns?: Set<string>;
 }
 
+type ProjectionContext = { canMaskOutput: (column: string) => boolean; policy: AccessPolicy };
+
+type ProjectionAnalyzer = (
+  statement: unknown,
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: ProjectionContext
+) => { columns: Map<string, ColumnLineage>; reason?: string };
+
 function checkMaskedProjectionAliases(
   statement: unknown,
   driver: DatabaseDriver,
@@ -484,7 +492,13 @@ function analyzePostgresProjection(
     return { columns: new Map(), reason: sources.reason };
   }
 
-  return analyzeProjectionColumns(arrayValue(statement.columns), sources.sources, context);
+  return analyzeProjectionColumns(
+    arrayValue(statement.columns),
+    sources.sources,
+    ctes,
+    context,
+    analyzePostgresProjection
+  );
 }
 
 function buildPostgresProjectionSources(
@@ -558,7 +572,13 @@ function analyzeMySqlProjection(
     return { columns: new Map(), reason: sources.reason };
   }
 
-  const analyzed = analyzeProjectionColumns(arrayValue(statement.columns), sources.sources, context);
+  const analyzed = analyzeProjectionColumns(
+    arrayValue(statement.columns),
+    sources.sources,
+    scoped,
+    context,
+    analyzeMySqlProjection
+  );
   if (analyzed.reason) {
     return analyzed;
   }
@@ -617,7 +637,9 @@ function buildMySqlProjectionSources(
 function analyzeProjectionColumns(
   columns: Record<string, unknown>[],
   sources: Map<string, ProjectionSource>,
-  context: { canMaskOutput: (column: string) => boolean }
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: ProjectionContext,
+  analyze: ProjectionAnalyzer
 ): { columns: Map<string, ColumnLineage>; reason?: string } {
   const output = new Map<string, ColumnLineage>();
 
@@ -654,6 +676,14 @@ function analyzeProjectionColumns(
       continue;
     }
 
+    // A scalar subquery in the projection returns its inner column's value under the outer
+    // output name, which strips the source column identity that runtime masking relies on.
+    // Analyze any such subquery in its OWN scope and reject it if it projects a masked column.
+    const subqueryReason = checkProjectionSubqueries(expr, ctes, context, analyze);
+    if (subqueryReason) {
+      return { columns: output, reason: subqueryReason };
+    }
+
     const maskedRefs = collectMaskedColumnRefs(expr, sources);
     if (maskedRefs.length > 0) {
       return {
@@ -664,6 +694,86 @@ function analyzeProjectionColumns(
   }
 
   return { columns: output };
+}
+
+function checkProjectionSubqueries(
+  expr: unknown,
+  ctes: Map<string, Map<string, ColumnLineage>>,
+  context: ProjectionContext,
+  analyze: ProjectionAnalyzer
+): string | undefined {
+  if (!expr) {
+    return undefined;
+  }
+
+  if (Array.isArray(expr)) {
+    for (const item of expr) {
+      const reason = checkProjectionSubqueries(item, ctes, context, analyze);
+      if (reason) {
+        return reason;
+      }
+    }
+    return undefined;
+  }
+
+  if (!isRecord(expr)) {
+    return undefined;
+  }
+
+  const subquery = subqueryStatement(expr);
+  if (subquery) {
+    // Resolve the subquery's projection in its own FROM scope. Use a permissive
+    // canMaskOutput so we surface the masked *lineage* itself rather than the outer
+    // query's multi-table reason; a masked value leaving a scalar subquery is never safe.
+    const analyzed = analyze(subquery, ctes, { policy: context.policy, canMaskOutput: () => true });
+    if (analyzed.reason) {
+      return `Masked column "${maskedColumnFromReason(analyzed.reason)}" cannot be exposed through a subquery in the projection.`;
+    }
+    const masked = [...analyzed.columns.values()].find((lineage) => lineage.masked);
+    if (masked) {
+      return `Masked column "${masked.sourceColumn}" cannot be exposed through a subquery in the projection.`;
+    }
+    // The subquery projects nothing masked; its own analysis has already recursed into any
+    // nested subqueries, so there is nothing further to check here.
+    return undefined;
+  }
+
+  for (const value of Object.values(expr)) {
+    const reason = checkProjectionSubqueries(value, ctes, context, analyze);
+    if (reason) {
+      return reason;
+    }
+  }
+  return undefined;
+}
+
+function subqueryStatement(expr: unknown): unknown | undefined {
+  if (!isRecord(expr)) {
+    return undefined;
+  }
+
+  // pgsql-ast-parser represents a scalar subquery as the SELECT node directly.
+  if (isSelectLike(expr)) {
+    return expr;
+  }
+
+  // node-sql-parser wraps the nested statement under `ast`.
+  if (isSelectLike(expr.ast)) {
+    return expr.ast;
+  }
+
+  return undefined;
+}
+
+function isSelectLike(node: unknown): boolean {
+  return (
+    isAstNode(node) && ["select", "union", "union all", "with", "with recursive"].includes(node.type)
+  );
+}
+
+function maskedColumnFromReason(reason: string): string {
+  const match = /Masked column "([^"]+)"/.exec(reason);
+  return match ? match[1] : "value";
 }
 
 function validateMaskedOutput(
